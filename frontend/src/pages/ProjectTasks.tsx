@@ -752,7 +752,7 @@ export function ProjectTasks() {
   };
 
   const kanbanContent = (
-    <div className="w-full h-full flex flex-col">
+    <div className="w-full h-full flex flex-col overflow-y-auto">
       {/* Quick task input - always visible, collapsed by default when tasks exist */}
       {projectId && (
         <div className="px-4 pt-4 pb-2 flex-shrink-0">
