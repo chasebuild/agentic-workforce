@@ -144,6 +144,17 @@ pub struct ProjectTaskStats {
     pub running_count: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct ProjectTaskStats {
+    pub project_id: Uuid,
+    pub todo_count: i64,
+    pub inprogress_count: i64,
+    pub inreview_count: i64,
+    pub done_count: i64,
+    pub cancelled_count: i64,
+    pub running_count: i64,
+}
+
 impl Task {
     pub fn to_prompt(&self) -> String {
         if let Some(description) = self.description.as_ref().filter(|d| !d.trim().is_empty()) {
