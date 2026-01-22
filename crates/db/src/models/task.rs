@@ -100,6 +100,17 @@ pub struct UpdateTask {
     pub image_ids: Option<Vec<Uuid>>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct ProjectTaskStats {
+    pub project_id: Uuid,
+    pub todo_count: i64,
+    pub inprogress_count: i64,
+    pub inreview_count: i64,
+    pub done_count: i64,
+    pub cancelled_count: i64,
+    pub running_count: i64,
+}
+
 impl Task {
     pub fn to_prompt(&self) -> String {
         if let Some(description) = self.description.as_ref().filter(|d| !d.trim().is_empty()) {
@@ -369,5 +380,61 @@ ORDER BY t.created_at DESC"#,
             current_workspace: workspace.clone(),
             children,
         })
+    }
+
+    /// Get task stats for all projects
+    pub async fn get_all_projects_stats(
+        pool: &SqlitePool,
+    ) -> Result<Vec<ProjectTaskStats>, sqlx::Error> {
+        // First get status counts per project
+        let status_records = sqlx::query!(
+            r#"SELECT
+                p.id AS "project_id!: Uuid",
+                COALESCE(SUM(CASE WHEN t.status = 'todo' THEN 1 ELSE 0 END), 0) AS "todo_count!: i64",
+                COALESCE(SUM(CASE WHEN t.status = 'inprogress' THEN 1 ELSE 0 END), 0) AS "inprogress_count!: i64",
+                COALESCE(SUM(CASE WHEN t.status = 'inreview' THEN 1 ELSE 0 END), 0) AS "inreview_count!: i64",
+                COALESCE(SUM(CASE WHEN t.status = 'done' THEN 1 ELSE 0 END), 0) AS "done_count!: i64",
+                COALESCE(SUM(CASE WHEN t.status = 'cancelled' THEN 1 ELSE 0 END), 0) AS "cancelled_count!: i64"
+            FROM projects p
+            LEFT JOIN tasks t ON t.project_id = p.id
+            GROUP BY p.id"#
+        )
+        .fetch_all(pool)
+        .await?;
+
+        // Get running task counts per project
+        let running_records = sqlx::query!(
+            r#"SELECT
+                t.project_id AS "project_id!: Uuid",
+                COUNT(DISTINCT t.id) AS "running_count!: i64"
+            FROM tasks t
+            JOIN workspaces w ON w.task_id = t.id
+            JOIN sessions s ON s.workspace_id = w.id
+            JOIN execution_processes ep ON ep.session_id = s.id
+            WHERE ep.status = 'running'
+              AND ep.run_reason IN ('setupscript', 'cleanupscript', 'codingagent')
+            GROUP BY t.project_id"#
+        )
+        .fetch_all(pool)
+        .await?;
+
+        // Build a map of running counts
+        let running_map: std::collections::HashMap<Uuid, i64> = running_records
+            .into_iter()
+            .map(|r| (r.project_id, r.running_count))
+            .collect();
+
+        Ok(status_records
+            .into_iter()
+            .map(|rec| ProjectTaskStats {
+                project_id: rec.project_id,
+                todo_count: rec.todo_count,
+                inprogress_count: rec.inprogress_count,
+                inreview_count: rec.inreview_count,
+                done_count: rec.done_count,
+                cancelled_count: rec.cancelled_count,
+                running_count: *running_map.get(&rec.project_id).unwrap_or(&0),
+            })
+            .collect())
     }
 }
